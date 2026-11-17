@@ -31,3 +31,13 @@ logs/
 Thumbs.db
 .vscode/
 .idea/
+
+# Historical backups
+backups/
+*.before-*
+*.backup*
+*.bak
+*.old
+*.orig
+*.save
+*.phase*-backup

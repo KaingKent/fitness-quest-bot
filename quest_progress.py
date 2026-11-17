@@ -2,8 +2,8 @@
 """Phase 3C: resumable onboarding and button-based milestone approvals."""
 import os
 import discord
-import phase2
-import phase3
+import workouts
+import quests
 
 APPROVAL_CHANNEL_ID=int(os.getenv('APPROVAL_CHANNEL_ID') or 0)
 ORGANIZER_ID=int(os.getenv('ORGANIZER_DISCORD_ID') or 0)
@@ -24,12 +24,12 @@ async def onboarding_step(pool,uid):
 async def start_onboarding(i,pool,bot):
     step=await onboarding_step(pool,i.user.id)
     if step=='name':
-        return await i.response.send_modal(phase2.RegistrationModal(pool,bot))
+        return await i.response.send_modal(workouts.RegistrationModal(pool,bot))
     if step=='plan':
-        return await i.response.send_modal(phase2.PlanModal(pool,bot))
+        return await i.response.send_modal(workouts.PlanModal(pool,bot))
     if step=='milestones':
-        import phase3b
-        return await i.response.send_modal(phase3b.SetMilestones(pool))
+        import quest_reviews
+        return await i.response.send_modal(quest_reviews.SetMilestones(pool))
     await i.response.send_message('✅ Your adventure is already underway! Use **My Progress** to view your character.',ephemeral=True)
 
 class RejectReason(discord.ui.Modal,title='Reject milestone'):
@@ -40,6 +40,7 @@ class RejectReason(discord.ui.Modal,title='Reject milestone'):
     async def on_submit(self,i):
         if not admin(i):
             return await i.response.send_message('Admins only.',ephemeral=True)
+        await i.response.defer(ephemeral=True)
         column='goal_status' if self.kind=='goal' else 'completion_status'
         async with self.pool.acquire() as c:
             async with c.transaction():
@@ -75,6 +76,7 @@ class MilestoneReviewView(discord.ui.View):
     async def approve(self,i):
         if not admin(i):
             return await i.response.send_message('Admins only.',ephemeral=True)
+        await i.response.defer(ephemeral=True)
         column='goal_status' if self.kind=='goal' else 'completion_status'
         async with self.pool.acquire() as c:
             row=await c.fetchrow(f"""UPDATE personal_milestones SET {column}='approved',
@@ -83,8 +85,12 @@ class MilestoneReviewView(discord.ui.View):
                 WHERE discord_user_id=$1 AND chapter=$2 AND {column}='pending'
                 RETURNING chapter""",self.uid,self.chapter,i.user.id)
         if not row:
-            return await i.response.send_message('Already reviewed or no longer pending.',ephemeral=True)
-        await i.response.edit_message(embed=reviewed_embed(i.message.embeds[0],'Approved',i.user.display_name),view=None)
+            return await i.followup.send('Already reviewed or no longer pending.',ephemeral=True)
+        if self.kind=='completion':
+            import achievements
+            await achievements.refresh(i.client,self.pool,self.uid)
+        await i.message.edit(embed=reviewed_embed(i.message.embeds[0],'Approved',i.user.display_name),view=None)
+        await i.followup.send('Approved.',ephemeral=True)
     async def reject(self,i):
         if not admin(i):
             return await i.response.send_message('Admins only.',ephemeral=True)

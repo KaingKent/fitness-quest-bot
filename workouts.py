@@ -11,7 +11,7 @@ import discord
 from discord import app_commands
 from PIL import Image, ImageDraw, ImageFont
 
-log = logging.getLogger('fitness-quest.phase2')
+log = logging.getLogger('fitness-quest.workouts')
 TZ = ZoneInfo('America/New_York')
 GUILD_ID = int(os.environ['DISCORD_GUILD_ID'])
 APPROVAL_CHANNEL_ID = int(os.getenv('APPROVAL_CHANNEL_ID') or '0')
@@ -83,7 +83,7 @@ def _profile_font(size, *, heavy=False, japanese=False):
     """Load real fonts on Ubuntu; fail clearly instead of silently drawing tiny text.
 
     Install with: sudo apt-get install fonts-dejavu-core fonts-noto-cjk
-    Place your own fortnite.otf alongside phase2.py for the Fortnite-style headings.
+    Place your own fortnite.otf alongside workouts.py for the Fortnite-style headings.
     """
     from pathlib import Path
     import os
@@ -212,10 +212,21 @@ def _draw_minecraft_xp_bar(canvas, rect, percent):
               fill='#0e1a11', width=1)
 
 
-def make_profile(name, xp, count, target, avatar_bytes=None, stats=None):
+async def approved_fitness_goals(pool, user_id):
+    """Only show goals from the latest approved plan request."""
+    async with pool.acquire() as con:
+        rows = await con.fetch("""SELECT goal_text FROM fitness_goals
+            WHERE discord_user_id=$1 AND status='approved'
+              AND source_request_id=(SELECT MAX(source_request_id)
+                  FROM fitness_goals WHERE discord_user_id=$1 AND status='approved')
+            ORDER BY goal_number""", user_id)
+    return [row['goal_text'] for row in rows]
+
+
+def make_profile(name, xp, count, target, avatar_bytes=None, stats=None, goals=None):
     """Approved white Fitness Quest profile. Phase 3 stats intentionally remain zero."""
     from pathlib import Path
-    W, H = 1280, 1180
+    W, H = 1280, 1530
     im = Image.new('RGB', (W, H), '#ffffff')
     d = ImageDraw.Draw(im)
     # Square Discord avatar frame, no circular clipping.
@@ -268,7 +279,37 @@ def make_profile(name, xp, count, target, avatar_bytes=None, stats=None):
     _steam_progress(d, 464, 'MINI QUEST PROGRESS', stats.get('mini', 0), 4)
     _steam_progress(d, 614, 'MAIN QUEST PROGRESS', stats.get('main', 0), 1)
     _steam_progress(d, 764, 'MILESTONES', stats.get('milestones', 0), 3)
-    _steam_progress(d, 914, 'ACHIEVEMENTS', stats.get('achievements', 0), 10)
+    _steam_progress(d, 914, 'ACHIEVEMENTS', stats.get('achievements', 0), 20)
+    # Approved fitness goals; separate from the three milestone checkpoints.
+    # A fixed-height extension preserves the approved artwork above this section.
+    d.line((60, 1192, 1220, 1192), fill='#d6d6d6', width=3)
+    _fitted(d, 'FITNESS GOALS', (61, 1214, 1150), 56)
+    goals = [str(g).strip() for g in (goals or []) if str(g).strip()][:3]
+    if not goals:
+        d.text((65, 1310), 'No structured goals approved yet.',
+               font=_profile_font(27), fill='#666666')
+    else:
+        for idx, goal in enumerate(goals):
+            # Two short lines per goal; truncation avoids overlapping adjacent goals.
+            from PIL import ImageFont
+            y = 1301 + idx * 72
+            d.text((65, y), f'{idx+1}.', font=_profile_font(29, heavy=True), fill='#111111')
+            words = goal.split()
+            lines, current = [], ''
+            for word in words:
+                candidate = (current + ' ' + word).strip()
+                if d.textbbox((0, 0), candidate, font=_profile_font(26))[2] > 1040 and current:
+                    lines.append(current)
+                    current = word
+                else:
+                    current = candidate
+            if current: lines.append(current)
+            for n, line in enumerate(lines[:2]):
+                if n == 1 and len(lines) > 2:
+                    while line and d.textbbox((0, 0), line + '…', font=_profile_font(26))[2] > 1030:
+                        line = line[:-1]
+                    line += '…'
+                d.text((112, y + n*29), line, font=_profile_font(26), fill='#222222')
     out = io.BytesIO()
     im.save(out, 'PNG')
     out.seek(0)
@@ -443,8 +484,8 @@ class ReviewView(discord.ui.View):
         except discord.HTTPException:
             pass
         if status == 'approved':
-            import phase4
-            await phase4.refresh(self.bot,self.pool,request['discord_user_id'])
+            import achievements
+            await achievements.refresh(self.bot,self.pool,request['discord_user_id'])
         await interaction.followup.send(f'Plan {status}.' + journal_text, ephemeral=True)
 
 
@@ -580,10 +621,11 @@ def register(bot, get_pool):
         await interaction.response.defer()
         pool = get_pool()
         subject = member or interaction.user
-        import phase4
-        if member is None: await phase4.refresh(bot,pool,subject.id)
-        xp = await phase4.total_xp(pool, subject.id)
-        stats = await phase4.profile_stats(pool, subject.id)
+        import achievements
+        if member is None: await achievements.refresh(bot,pool,subject.id)
+        xp = await achievements.total_xp(pool, subject.id)
+        stats = await achievements.profile_stats(pool, subject.id)
+        goals_list = await approved_fitness_goals(pool, subject.id)
         count, target, _ = await get_week(pool, subject.id, monday(today()))
         async with pool.acquire() as con:
             chosen_name = await con.fetchval('SELECT challenger_name FROM players WHERE discord_user_id=$1', subject.id)
@@ -595,7 +637,7 @@ def register(bot, get_pool):
             avatar = await subject.display_avatar.read()
         except discord.HTTPException:
             pass
-        img = await asyncio.to_thread(make_profile, chosen_name, xp, count, target, avatar, stats)
+        img = await asyncio.to_thread(make_profile, chosen_name, xp, count, target, avatar, stats, goals_list)
         await interaction.followup.send(file=discord.File(img, filename='fitness-quest-profile.png'))
 
     @bot.tree.command(name='setup_journal', description='Create or reconnect a challenger journal', guild=guild)

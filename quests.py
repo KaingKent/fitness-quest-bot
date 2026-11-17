@@ -3,10 +3,10 @@ import datetime as dt
 import os
 import discord
 from discord import app_commands
-import phase2
-import phase3b
-import phase4
-import phase5
+import workouts
+import quest_reviews
+import achievements
+import quest_scheduler
 from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("America/New_York")
@@ -40,12 +40,12 @@ async def scores(pool):
             SELECT discord_user_id, 10 AS xp FROM weekly_reflections
         ) v GROUP BY discord_user_id''')
     extra_map = {r['discord_user_id']:r['xp'] for r in extra}
-    week = phase2.monday(phase2.today())
+    week = workouts.monday(workouts.today())
     result = []
     for p in players:
         uid = p['discord_user_id']
-        workout = await phase2.workout_total(pool, uid)
-        count, target, wxp = await phase2.get_week(pool, uid, week)
+        workout = await workouts.workout_total(pool, uid)
+        count, target, wxp = await workouts.get_week(pool, uid, week)
         async with pool.acquire() as con:
             week_extra = await con.fetchval('''SELECT COALESCE(SUM(xp),0)::integer FROM (
                 SELECT q.xp FROM quest_submissions s JOIN quests q ON q.id=s.quest_id
@@ -61,7 +61,7 @@ async def scores(pool):
         # incomplete week (unless the week is still in progress, in which case use last week).
         start = history[0]['effective_date'] if history else week
         successful = 0
-        cursor = phase2.monday(start)
+        cursor = workouts.monday(start)
         while cursor <= week:
             active = [h for h in history if h['effective_date'] <= cursor]
             if active and byweek.get(cursor,0) >= active[-1]['weekly_target']:
@@ -69,21 +69,21 @@ async def scores(pool):
             cursor += dt.timedelta(days=7)
         streak = 0
         cursor = week if target and count >= target else week-dt.timedelta(days=7)
-        while cursor >= phase2.monday(start):
+        while cursor >= workouts.monday(start):
             active = [h for h in history if h['effective_date'] <= cursor]
             if not active or byweek.get(cursor,0) < active[-1]['weekly_target']:
                 break
             streak += 1
             cursor -= dt.timedelta(days=7)
-        milestone = await phase3b.milestone_xp(pool, uid)
+        milestone = await quest_reviews.milestone_xp(pool, uid)
         async with pool.acquire() as con:
             milestone_week = await con.fetchval('''SELECT count(*)*30 FROM personal_milestones
                 WHERE discord_user_id=$1 AND completion_status='approved'
                 AND completion_reviewed_at >= $2::date
                 AND completion_reviewed_at < ($2::date + interval '7 days')''',uid,week)
-        total = await phase4.total_xp(pool,uid)
-        achievement_week = await phase4.xp_week(pool,uid,week)
-        level,title = phase2.level_and_title(total)
+        total = await achievements.total_xp(pool,uid)
+        achievement_week = await achievements.xp_week(pool,uid,week)
+        level,title = workouts.level_and_title(total)
         result.append(dict(uid=uid,name=p['name'],total=total,weekly=wxp+week_extra+int(milestone_week or 0)+achievement_week,
                            level=level,title=title,streak=streak,success=successful,
                            count=count,target=target or 0))
@@ -111,7 +111,7 @@ class RankingView(discord.ui.View):
         else:
             ordered=sorted(self.rows,key=lambda r:(-r['success'],-r['streak'],-r['total'],r['name'].lower()))
             heading='🔥 Consistency Rankings'
-        embed=discord.Embed(title=heading,description='Fitness Quest · Week of '+str(phase2.monday(phase2.today())),color=0x8876c9)
+        embed=discord.Embed(title=heading,description='Fitness Quest · Week of '+str(workouts.monday(workouts.today())),color=0x8876c9)
         if not ordered:
             embed.description+='\nNo approved challengers yet.'
         for i,r in enumerate(ordered[:15]):
@@ -150,7 +150,7 @@ class ReflectionModal(discord.ui.Modal,title='Weekly Reflection'):
         super().__init__(); self.pool=pool
 
     async def on_submit(self,interaction:discord.Interaction):
-        week=phase2.monday(phase2.today())
+        week=workouts.monday(workouts.today())
         async with self.pool.acquire() as con:
             exists=await con.fetchval('SELECT 1 FROM players WHERE discord_user_id=$1',interaction.user.id)
             if not exists:
@@ -196,7 +196,7 @@ class QuestModal(discord.ui.Modal):
         if attachment and (not (attachment.content_type or '').startswith('image/') or attachment.size > 8*1024*1024):
             return await interaction.response.send_message('Use an image smaller than 8 MB.', ephemeral=True)
         await interaction.response.defer(ephemeral=True)
-        week = phase2.monday(phase2.today())
+        week = workouts.monday(workouts.today())
         async with self.pool.acquire() as con:
             player = await con.fetchval('SELECT 1 FROM players WHERE discord_user_id=$1', interaction.user.id)
             active = await con.fetchrow('''SELECT id,kind,published,release_date,due_date FROM quests
@@ -206,7 +206,7 @@ class QuestModal(discord.ui.Modal):
             previous = await con.fetchval('SELECT 1 FROM quest_submissions WHERE quest_id=$1 AND discord_user_id=$2', q['id'], interaction.user.id)
         if not player or not active or not active['published']:
             return await interaction.followup.send('Register first and select an active quest.', ephemeral=True)
-        if not phase5.quest_open(active) and not (exception and active['release_date'] and dt.datetime.now(TZ).date() >= active['release_date']):
+        if not quest_scheduler.quest_open(active) and not (exception and active['release_date'] and dt.datetime.now(TZ).date() >= active['release_date']):
             return await interaction.followup.send('This quest is not currently open. Ask an organizer for a late-submission exception if its deadline passed.', ephemeral=True)
         if previous:
             return await interaction.followup.send('Already submitted; no duplicate XP.', ephemeral=True)
@@ -260,7 +260,7 @@ class QuestModal(discord.ui.Modal):
             try: await message.delete()
             except discord.HTTPException: pass
             return await interaction.followup.send('Already submitted; no duplicate XP.', ephemeral=True)
-        await phase4.refresh(interaction.client,self.pool,interaction.user.id)
+        await achievements.refresh(interaction.client,self.pool,interaction.user.id)
         await interaction.followup.send(f"Submitted {'privately' if private else 'publicly'}! +{q['xp']} XP.", ephemeral=True)
 
 
@@ -312,7 +312,7 @@ def register(bot,get_pool):
             await interaction.response.send_message('Use a Monday in YYYY-MM-DD format.',ephemeral=True);return
         async with get_pool().acquire() as con:
             async with con.transaction():
-                start = phase5.season_start()
+                start = quest_scheduler.season_start()
                 is_test = preseason_test_week(day)
                 if not is_test and (start is None or not start <= day < start + dt.timedelta(weeks=12)):
                     await interaction.response.send_message('Quest date must fall within the configured 12-week season.',ephemeral=True); return
@@ -365,7 +365,7 @@ def register(bot,get_pool):
 
     @bot.tree.command(name='quests',description='View published quests for the current week',guild=guild)
     async def quests(interaction:discord.Interaction):
-        week=phase2.monday(phase2.today())
+        week=workouts.monday(workouts.today())
         async with get_pool().acquire() as con:
             rows=await con.fetch('''SELECT id,kind,title,instructions,xp,proof_type FROM quests
                 WHERE week_start=$1 AND published=true AND release_date <= $2 AND due_date >= $2 ORDER BY kind,id''',week,dt.datetime.now(TZ).date())
@@ -378,7 +378,7 @@ def register(bot,get_pool):
 
     @bot.tree.command(name='quest_submit',description='Open quest submission form',guild=guild)
     async def quest_submit(interaction:discord.Interaction,quest_id:int):
-        week=phase2.monday(phase2.today())
+        week=workouts.monday(workouts.today())
         async with get_pool().acquire() as con:
             q=await con.fetchrow('''SELECT q.id,q.title,q.xp,q.proof_type FROM quests q
                 WHERE q.id=$1 AND q.published=true AND q.release_date <= $3
@@ -392,7 +392,7 @@ def register(bot,get_pool):
 
     @bot.tree.command(name='quest_log',description='View your completed quests this week',guild=guild)
     async def quest_log(interaction:discord.Interaction):
-        week=phase2.monday(phase2.today())
+        week=workouts.monday(workouts.today())
         async with get_pool().acquire() as con:
             rows=await con.fetch('''SELECT q.title,q.xp,s.status FROM quests q
                 LEFT JOIN quest_submissions s ON s.quest_id=q.id AND s.discord_user_id=$1
@@ -437,7 +437,7 @@ def register(bot,get_pool):
 
     @bot.tree.command(name='my_reflection',description='Privately review your reflection for the current week',guild=guild)
     async def my_reflection(interaction:discord.Interaction):
-        week=phase2.monday(phase2.today())
+        week=workouts.monday(workouts.today())
         async with get_pool().acquire() as con:
             response=await con.fetchval('SELECT response FROM weekly_reflections WHERE discord_user_id=$1 AND week_start=$2',interaction.user.id,week)
         await interaction.response.send_message('📖 **Your Reflection**\n'+safe(response) if response else 'No reflection submitted this week.',ephemeral=True)

@@ -14,12 +14,12 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
-import phase2
-import phase3
-import phase3b
-import phase3c
-import phase4
-import phase5
+import workouts
+import quests
+import quest_reviews
+import quest_progress
+import achievements
+import quest_scheduler
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("fitness-quest")
 TZ = ZoneInfo("America/New_York")
@@ -33,11 +33,11 @@ SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "service-account
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 pool: asyncpg.Pool | None = None
-phase2.register(bot, lambda: pool)
-phase3.register(bot, lambda: pool)
-phase3b.register(bot, lambda: pool)
-phase4.register(bot, lambda: pool)
-calendar_loop=phase5.register(bot,lambda: pool)
+workouts.register(bot, lambda: pool)
+quests.register(bot, lambda: pool)
+quest_reviews.register(bot, lambda: pool)
+achievements.register(bot, lambda: pool)
+calendar_loop=quest_scheduler.register(bot,lambda: pool)
 
 
 def week_bounds(day: dt.date):
@@ -53,12 +53,12 @@ async def ensure_player(user: discord.abc.User):
 
 
 async def weekly_progress(user_id: int, day: dt.date):
-    count, target, xp = await phase2.get_week(pool, user_id, phase2.monday(day))
+    count, target, xp = await workouts.get_week(pool, user_id, workouts.monday(day))
     return count, target, xp
 
 
 async def publish_workout(interaction: discord.Interaction, workout_id: uuid.UUID):
-    return await phase2.publish_journal(bot, pool, workout_id, interaction.user.id)
+    return await workouts.publish_journal(bot, pool, workout_id, interaction.user.id)
 
 
 class WorkoutModal(discord.ui.Modal, title="Log your workout"):
@@ -87,7 +87,7 @@ class WorkoutModal(discord.ui.Modal, title="Log your workout"):
             return
         # Normal submissions are limited to the current Monday-Sunday ET week.
         # Organizers can authorize a specific late date through /workout_exception.
-        week_start=phase2.monday(today)
+        week_start=workouts.monday(today)
         async with pool.acquire() as con:
             exception=await con.fetchval('SELECT 1 FROM workout_deadline_exceptions WHERE discord_user_id=$1 AND workout_date=$2',interaction.user.id,day)
         if day < week_start and not exception:
@@ -129,7 +129,7 @@ class WorkoutModal(discord.ui.Modal, title="Log your workout"):
                     values($1,$2,$3,$4,$5,$6,'public',$7,$8)""", workout_id, interaction.user.id,
                     day, self.selected_workout_type, minutes, str(self.notes).strip(), str(self.workout_title).strip(),proof_url)
                 await con.execute("insert into sync_outbox(workout_id,event_type) values($1,'upsert') on conflict do nothing", workout_id)
-        await phase4.refresh(bot,pool,interaction.user.id)
+        await achievements.refresh(bot,pool,interaction.user.id)
         count, target, xp = await weekly_progress(interaction.user.id, day)
         status = (f"{count}/{target} workouts · {xp}/50 workout XP" if target
                   else "Workout XP pending plan approval (use /register then /set_goal)")
@@ -208,7 +208,7 @@ class MilestoneChapterSelect(discord.ui.Select):
         if not row or row['goal_status'] != 'approved' or row['completion_status'] not in ('not_submitted', 'rejected'):
             await interaction.response.send_message('This milestone is not approved, or its completion is already pending or completed.', ephemeral=True)
             return
-        await interaction.response.send_modal(phase3b.MilestoneProof(pool, row))
+        await interaction.response.send_modal(quest_reviews.MilestoneProof(pool, row))
 
 
 class MilestoneSubmitView(discord.ui.View):
@@ -220,13 +220,13 @@ class MilestoneSubmitView(discord.ui.View):
 class HubView(discord.ui.View):
     @discord.ui.button(label="Begin Your Adventure", style=discord.ButtonStyle.primary, emoji="⚔️", custom_id="fitnessquest:begin_adventure", row=0)
     async def begin_adventure(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await phase3c.start_onboarding(interaction,pool,bot)
+        await quest_progress.start_onboarding(interaction,pool,bot)
 
     @discord.ui.button(label="Leaderboard", style=discord.ButtonStyle.secondary, emoji="🏆", custom_id="fitnessquest:leaderboard", row=0)
     async def leaderboard_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        rows=await phase3.scores(pool)
-        view=phase3.RankingView(pool,rows)
+        rows=await quests.scores(pool)
+        view=quests.RankingView(pool,rows)
         message = await interaction.followup.send(embed=view.embed('overall'),view=view,ephemeral=True,wait=True)
         dismiss_hub_message(message)
 
@@ -252,19 +252,19 @@ class HubView(discord.ui.View):
             message = await interaction.followup.send("Register first using `/register` to view your graphical profile.", ephemeral=True,wait=True)
             dismiss_hub_message(message)
             return
-        await phase4.refresh(bot,pool,interaction.user.id)
-        xp = await phase4.total_xp(pool, interaction.user.id)
-        stats = await phase4.profile_stats(pool, interaction.user.id)
-        goals_list = await phase2.approved_fitness_goals(pool, interaction.user.id)
-        count, target, _ = await phase2.get_week(
-            pool, interaction.user.id, phase2.monday(phase2.today()))
+        await achievements.refresh(bot,pool,interaction.user.id)
+        xp = await achievements.total_xp(pool, interaction.user.id)
+        stats = await achievements.profile_stats(pool, interaction.user.id)
+        goals_list = await workouts.approved_fitness_goals(pool, interaction.user.id)
+        count, target, _ = await workouts.get_week(
+            pool, interaction.user.id, workouts.monday(workouts.today()))
         avatar = None
         try:
             avatar = await interaction.user.display_avatar.read()
         except discord.HTTPException:
             pass
         img = await asyncio.to_thread(
-            phase2.make_profile, chosen_name, xp, count, target, avatar, stats, goals_list)
+            workouts.make_profile, chosen_name, xp, count, target, avatar, stats, goals_list)
         message = await interaction.followup.send(
             file=discord.File(img, filename="fitness-quest-profile.png"), ephemeral=True,wait=True)
         dismiss_hub_message(message)
@@ -285,22 +285,22 @@ class HubView(discord.ui.View):
 
     @discord.ui.button(label="Weekly Quests", style=discord.ButtonStyle.secondary, emoji="📜", custom_id="fitnessquest:quests", row=1)
     async def quests_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        week = phase2.monday(phase2.today())
+        week = workouts.monday(workouts.today())
         async with pool.acquire() as con:
             rows = await con.fetch("""SELECT id,kind,title,instructions,xp,proof_type FROM quests
                 WHERE week_start=$1 AND published=true AND release_date <= $2 AND due_date >= $2 ORDER BY kind,id""", week, dt.datetime.now(TZ).date())
         embed = discord.Embed(title='📜 Weekly Quest Board', description=f'Week of {week}', color=0x8876c9)
         for q in rows:
-            embed.add_field(name=f"{'⚔️' if q['kind']=='main' else '🎨'} #{q['id']} {phase3.safe(q['title'])} · {q['xp']} XP",
-                            value=phase3.safe(q['instructions'])[:900]+'\nProof: '+str(q['proof_type']), inline=False)
+            embed.add_field(name=f"{'⚔️' if q['kind']=='main' else '🎨'} #{q['id']} {quests.safe(q['title'])} · {q['xp']} XP",
+                            value=quests.safe(q['instructions'])[:900]+'\nProof: '+str(q['proof_type']), inline=False)
         if not rows:
             embed.description += '\nNo published quests yet.'
-        view = phase3.QuestSelectView(pool, rows) if rows else None
+        view = quests.QuestSelectView(pool, rows) if rows else None
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @discord.ui.button(label="Weekly Reflection", style=discord.ButtonStyle.secondary, emoji="📖", custom_id="fitnessquest:reflection", row=1)
     async def reflection_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(phase3.ReflectionModal(pool))
+        await interaction.response.send_modal(quests.ReflectionModal(pool))
 
     @discord.ui.button(label="My Milestones", style=discord.ButtonStyle.secondary, emoji="🏁", custom_id="fitnessquest:milestones", row=1)
     async def milestones_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -313,22 +313,22 @@ class HubView(discord.ui.View):
         embed = discord.Embed(title='🏁 Your Milestones', color=0x8876c9)
         for r in rows:
             embed.add_field(name=f'Chapter {r["chapter"]} · Week {r["chapter"]*4}',
-                            value=f'{phase3b.escape(r["goal"])}\nGoal: {r["goal_status"]} · Completion: {r["completion_status"]} · 30 XP', inline=False)
+                            value=f'{quest_reviews.escape(r["goal"])}\nGoal: {r["goal_status"]} · Completion: {r["completion_status"]} · 30 XP', inline=False)
         await interaction.response.send_message(embed=embed, view=MilestoneSubmitView(interaction.user.id), ephemeral=True)
 
     @discord.ui.button(label="Achievements", style=discord.ButtonStyle.secondary, emoji="🏆", custom_id="fitnessquest:achievements", row=1)
     async def achievements_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        await phase4.refresh(bot, pool, interaction.user.id)
-        state = await phase4.snapshot(pool, interaction.user.id)
+        await achievements.refresh(bot, pool, interaction.user.id)
+        state = await achievements.snapshot(pool, interaction.user.id)
         unlocked = state['unlocked']
-        total = len(phase4.ACHIEVEMENTS)
+        total = len(achievements.ACHIEVEMENTS)
         embed = discord.Embed(title='🏆 Your Achievements',
             description=f'{len(unlocked)}/{total} unlocked · {len(unlocked)*15}/{total*15} XP', color=discord.Color.gold())
-        for key, emoji, title, description in phase4.ACHIEVEMENTS:
+        for key, emoji, title, description in achievements.ACHIEVEMENTS:
             is_unlocked = key in unlocked
 
-            if key in phase4.HIDDEN_ACHIEVEMENTS and not is_unlocked:
+            if key in achievements.HIDDEN_ACHIEVEMENTS and not is_unlocked:
                 emoji = "❔"
                 title = "???"
                 description = "Secret achievement. Unlock it to reveal the requirement."
@@ -408,10 +408,10 @@ async def workout_image(interaction: discord.Interaction, image: discord.Attachm
         await con.execute("""insert into sync_outbox(workout_id,event_type) values($1,'upsert')
             on conflict(workout_id,event_type) do update set processed_at=null""", row['id'])
     if row['public_message_id']:
-        await phase2.refresh_journal_post(bot, pool, row['id'], interaction.user.id)
+        await workouts.refresh_journal_post(bot, pool, row['id'], interaction.user.id)
     else:
         try:
-            await phase2.publish_journal(bot, pool, row['id'], interaction.user.id)
+            await workouts.publish_journal(bot, pool, row['id'], interaction.user.id)
         except (discord.Forbidden, discord.HTTPException):
             log.exception("Photo saved but journal publish failed")
     await interaction.response.send_message(
@@ -514,8 +514,8 @@ async def main():
     try:
         async with bot:
             bot.add_view(HubView())
-            await phase2.restore_reviews(bot, pool)
-            await phase3c.restore_reviews(bot,pool)
+            await workouts.restore_reviews(bot, pool)
+            await quest_progress.restore_reviews(bot,pool)
             await bot.login(TOKEN)
             await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
             log.info("Discord slash commands synchronized")
