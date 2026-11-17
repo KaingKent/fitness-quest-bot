@@ -182,4 +182,6 @@ def register(bot,get_pool):
         if row and decision.value=='approved':
             from fitness_quest import achievements
             await achievements.refresh(i.client,get_pool(),member.id)
+            await workouts.announce_xp(i.client, get_pool(), member.id, 30,
+                                       f'Milestone completed: Chapter {chapter}')
         await i.response.send_message(('Completion approved; +30 XP awarded.' if decision.value=='approved' else 'Completion rejected; challenger may resubmit.') if row else 'No pending completion found.',ephemeral=True)

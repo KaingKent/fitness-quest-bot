@@ -158,6 +158,9 @@ class ReflectionModal(discord.ui.Modal,title='Weekly Reflection'):
             result=await con.execute('''INSERT INTO weekly_reflections(week_start,discord_user_id,response)
                 VALUES($1,$2,$3) ON CONFLICT(week_start,discord_user_id) DO NOTHING''',
                 week,interaction.user.id,f"This week: {self.reflection.value}\nNext week: {self.next_week.value}")
+        if result == 'INSERT 0 1':
+            await workouts.announce_xp(interaction.client, self.pool, interaction.user.id,
+                                       10, 'Weekly reflection')
         await interaction.response.send_message('📖 Reflection saved privately. +10 XP!' if result=='INSERT 0 1'
             else 'You already submitted a reflection this week. No duplicate XP awarded.',ephemeral=True)
 
@@ -261,6 +264,8 @@ class QuestModal(discord.ui.Modal):
             except discord.HTTPException: pass
             return await interaction.followup.send('Already submitted; no duplicate XP.', ephemeral=True)
         await achievements.refresh(interaction.client,self.pool,interaction.user.id)
+        await workouts.announce_xp(interaction.client, self.pool, interaction.user.id,
+                                   int(q['xp']), f"Quest completed: {q['title']}")
         await interaction.followup.send(f"Submitted {'privately' if private else 'publicly'}! +{q['xp']} XP.", ephemeral=True)
 
 

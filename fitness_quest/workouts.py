@@ -345,6 +345,27 @@ async def ensure_journal(bot, pool, guild, user):
     return channel
 
 
+
+async def announce_xp(bot, pool, user_id, amount, reason):
+    """Notify the player's existing journal; XP is awarded elsewhere."""
+    if amount <= 0:
+        return False
+    async with pool.acquire() as con:
+        journal_id = await con.fetchval(
+            'SELECT journal_channel_id FROM players WHERE discord_user_id=$1', user_id)
+    channel = bot.get_channel(int(journal_id)) if journal_id else None
+    if not isinstance(channel, discord.TextChannel):
+        return False
+    try:
+        await channel.send(
+            f'✨ **+{amount} XP** — {discord.utils.escape_markdown(str(reason))}',
+            allowed_mentions=discord.AllowedMentions.none())
+        return True
+    except (discord.Forbidden, discord.HTTPException):
+        log.exception('Could not announce XP for %s', user_id)
+        return False
+
+
 def workout_embed(record):
     embed = discord.Embed(title='💪 ' + (record['title'] or f"{record['workout_type']} Workout"), color=discord.Color.purple())
     embed.add_field(name='Activity', value=record['workout_type'])

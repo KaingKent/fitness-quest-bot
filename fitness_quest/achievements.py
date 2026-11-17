@@ -7,28 +7,7 @@ from fitness_quest import workouts as workout_module
 
 log=logging.getLogger('fitness-quest.achievements')
 CHANNEL_ID=int(os.getenv('ACHIEVEMENTS_CHANNEL_ID') or 0)
-ACHIEVEMENTS=[
- ('first_steps','🌱','First Steps','Log your first workout.'),
- ('on_a_roll','🔥','On a Roll','Complete your workout goal in 3 different weeks.'),
- ('unbreakable','🛡️','Unbreakable','Complete your workout goal in 8 different weeks.'),
- ('creative_spark','🎨','Creative Spark','Complete 8 mini quests.'),
- ('main_character','🎭','Main Character','Complete 6 main quests.'),
- ('party_member','🤝','Party Member','Complete 2 team quests.'),
- ('pathfinder','🧭','Pathfinder','Get your first milestone approved as completed.'),
- ('quest_complete','🏁','Quest Complete','Get all 3 milestone completions approved.'),
- ('hidden_in_plain_sight','🔍','Hidden in Plain Sight','Complete all 4 mini quests in one week.'),
- ('the_unexpected','🎁','The Unexpected','Complete a main quest in each of the 3 chapters.'),
- ('weekly_warrior','💪','Weekly Warrior','Meet your weekly workout target for the first time.'),
- ('perfect_pace','⚡','Perfect Pace','Meet your weekly target for 4 consecutive weeks.'),
- ('chungus_consistency','👑','Consistency Champion','Meet your weekly target in all 12 challenge weeks.'),
- ('workout_wonder','🏋️','Workout Wonder','Log 25 workouts.'),
- ('quest_quencher','🗺️','Quest Quencher','Complete 20 quests.'),
- ('peak_cinema','🎯','Main Quest Master','Complete all 12 weekly main quests.'),
- ('reflective_resolve','📖','Reflective Resolve','Submit 4 weekly reflections.'),
- ('performative_journaling','📚','Reflection Royalty','Submit all 12 weekly reflections.'),
- ('no_crumbs_left','🌄','Chapter Champion','Complete every mini and main quest in one 4-week chapter.'),
- ('chungus_completionist','🌟','Chungus Completionist','Unlock the other 19 achievements.')
-]
+ACHIEVEMENTS=[('first_steps', '🌱', 'The Chud Chronicles', 'Log your first workout.'), ('on_a_roll', '🔥', 'Triple Triumph', 'Complete your workout goal in 3 different weeks.'), ('unbreakable', '🛡️', 'Relentless Resolve', 'Complete your workout goal in 8 different weeks.'), ('creative_spark', '🎨', 'She Ate', 'Complete 8 mini quests.'), ('main_character', '🎭', '6...7?', 'Complete 6 main quests.'), ('party_member', '🤝', 'Dynamic Duo', 'Complete 2 team quests.'), ('pathfinder', '🧭', 'Proof of Progress', 'Get your first milestone approved as completed.'), ('quest_complete', '🏁', 'Milestone Monarch', 'Get all 3 milestone completions approved.'), ('hidden_in_plain_sight', '🔍', 'Quest Quartet', 'Complete all 4 mini quests in one week.'), ('the_unexpected', '🎁', 'Chapter Conqueror', 'Complete a main quest in each of the 3 chapters.'), ('weekly_warrior', '💪', 'Weekly Warrior', 'Meet your weekly workout target for the first time.'), ('perfect_pace', '⚡', 'Perfect Pace', 'Meet your weekly target for 4 consecutive weeks.'), ('chungus_consistency', '👑', 'Chungus Consistency', 'Meet your weekly target in all 12 challenge weeks.'), ('workout_wonder', '🏋️', 'Workout Wonder', 'Log 25 workouts.'), ('quest_quencher', '🗺️', 'Quest Quencher', 'Complete 20 quests.'), ('peak_cinema', '🎯', 'Peak Cinema', 'Complete all 12 weekly main quests.'), ('reflective_resolve', '📖', 'Reflective Resolve', 'Submit 4 weekly reflections.'), ('performative_journaling', '📚', 'Performative Journaling', 'Submit all 12 weekly reflections.'), ('no_crumbs_left', '🌄', 'No Crumbs Left', 'Complete every mini and main quest in one 4-week chapter.'), ('chungus_completionist', '🌟', 'Chungus Completionist', 'Unlock the other 19 achievements.')]
 BY_KEY={a[0]:a for a in ACHIEVEMENTS}
 HIDDEN_ACHIEVEMENTS={'hidden_in_plain_sight','the_unexpected'}
 
@@ -113,6 +92,10 @@ async def refresh(bot,pool,uid):
         if all(key in keys for key in BY_KEY if key!='chungus_completionist'):
             result=await c.execute('INSERT INTO achievement_unlocks(discord_user_id,achievement_key) VALUES($1,$2) ON CONFLICT DO NOTHING',uid,'chungus_completionist')
             if result=='INSERT 0 1': new.append('chungus_completionist')
+    if new and bot:
+        for key in new:
+            await workouts.announce_xp(bot, pool, uid, 15,
+                                       f'Achievement unlocked: {BY_KEY[key][2]}')
     if new and CHANNEL_ID and bot:
         channel=bot.get_channel(CHANNEL_ID)
         if channel is None:

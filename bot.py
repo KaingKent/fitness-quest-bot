@@ -71,6 +71,16 @@ class WorkoutModal(discord.ui.Modal, title="Log your workout"):
         super().__init__()
         self.selected_workout_type = workout_type
         self.picker_interaction = picker_interaction
+        examples = {
+            'Strength': ('Push Day — Chest & Triceps', 'Bench press, shoulder press, triceps'),
+            'Cardio': ('Morning 5K Run', 'Distance, pace, intervals'),
+            'Sports': ('Basketball — Full Court Games', 'Games played, drills, performance'),
+            'Mobility': ('Full Body Stretch & Recovery', 'Stretches, mobility exercises'),
+            'Other': ("Today's Workout", 'Describe the activity completed'),
+        }
+        title_example, notes_example = examples.get(workout_type, examples['Other'])
+        self.workout_title.placeholder = title_example
+        self.notes.placeholder = notes_example
         self.workout_date.default = dt.datetime.now(TZ).date().isoformat()
         self.proof = discord.ui.FileUpload(required=True,min_values=1,max_values=1)
         self.add_item(discord.ui.Label(text='Workout proof (image)',component=self.proof))
@@ -114,31 +124,48 @@ class WorkoutModal(discord.ui.Modal, title="Log your workout"):
         if proof_channel is None:
             await interaction.followup.send('Your personal journal is not ready. Ask an organizer to approve your plan before logging workouts.',ephemeral=True)
             return
+        # Calculate workout XP before saving, so journal notices report only new XP.
+        _, _, before_workout_xp = await weekly_progress(interaction.user.id, day)
         try:
             proof_file=await proof.to_file(filename='workout-proof.'+(proof.filename.rsplit('.',1)[-1].lower() if '.' in proof.filename else 'png'))
-            proof_message=await proof_channel.send(content=f'Workout proof from {interaction.user.mention} for {day.isoformat()}',file=proof_file,allowed_mentions=discord.AllowedMentions.none())
+            preview = workouts.workout_embed({
+                'title': str(self.workout_title).strip(),
+                'workout_type': self.selected_workout_type,
+                'duration_minutes': minutes,
+                'workout_date': day,
+                'notes': str(self.notes).strip(),
+                'image_discord_url': 'attachment://' + proof_file.filename,
+            })
+            proof_message=await proof_channel.send(
+                embed=preview, file=proof_file,
+                allowed_mentions=discord.AllowedMentions.none())
             proof_url=proof_message.attachments[0].url
         except (discord.HTTPException,discord.Forbidden):
             log.exception('Workout proof upload failed')
             await interaction.followup.send('Could not upload proof to your journal. Workout not saved; try again.',ephemeral=True)
             return
         workout_id = uuid.uuid4()
-        async with pool.acquire() as con:
-            async with con.transaction():
-                await con.execute("""insert into workouts(id,discord_user_id,workout_date,workout_type,duration_minutes,notes,visibility,title,image_discord_url)
-                    values($1,$2,$3,$4,$5,$6,'public',$7,$8)""", workout_id, interaction.user.id,
-                    day, self.selected_workout_type, minutes, str(self.notes).strip(), str(self.workout_title).strip(),proof_url)
-                await con.execute("insert into sync_outbox(workout_id,event_type) values($1,'upsert') on conflict do nothing", workout_id)
+        try:
+            async with pool.acquire() as con:
+                async with con.transaction():
+                    await con.execute("""insert into workouts(id,discord_user_id,workout_date,workout_type,duration_minutes,notes,visibility,title,image_discord_url,public_message_id)
+                        values($1,$2,$3,$4,$5,$6,'public',$7,$8,$9)""", workout_id, interaction.user.id,
+                        day, self.selected_workout_type, minutes, str(self.notes).strip(), str(self.workout_title).strip(),proof_url,proof_message.id)
+                    await con.execute("insert into sync_outbox(workout_id,event_type) values($1,'upsert') on conflict do nothing", workout_id)
+        except Exception:
+            try:
+                await proof_message.delete()
+            except discord.HTTPException:
+                pass
+            raise
         await achievements.refresh(bot,pool,interaction.user.id)
         count, target, xp = await weekly_progress(interaction.user.id, day)
+        earned = max(0, xp - before_workout_xp)
+        if earned:
+            await workouts.announce_xp(bot, pool, interaction.user.id, earned, 'Workout progress')
         status = (f"{count}/{target} workouts · {xp}/50 workout XP" if target
                   else "Workout XP pending plan approval (use /register then /set_goal)")
-        try:
-            posted = await publish_workout(interaction, workout_id)
-            publish_status = "Posted to your journal." if posted else "Saved, but no journal is assigned yet. It will be posted when your plan is approved and your journal is ready."
-        except (discord.Forbidden, discord.HTTPException):
-            log.exception("Could not publish workout %s", workout_id)
-            publish_status = "Saved, but journal posting failed. Ask an admin to check bot permissions."
+        publish_status = "Posted to your journal."
         confirmation = await interaction.followup.send(
             f"✅ Workout saved! {publish_status}\nWeek of {week_bounds(day)[0]}: **{status}**.\n"
             "Workout proof attached to your journal.", ephemeral=True, wait=True)
