@@ -34,16 +34,39 @@ class ContinueOnboarding(discord.ui.View):
         await start_onboarding(interaction, self.pool, self.bot)
 
 
+
+def dismiss_onboarding_message(message, seconds=60):
+    import asyncio
+
+    async def delete_later():
+        await asyncio.sleep(seconds)
+        try:
+            await message.delete()
+        except (discord.NotFound, discord.HTTPException):
+            pass
+
+    asyncio.create_task(delete_later())
+
+
 async def send_onboarding_progress(interaction, pool, bot, message):
     """Send a next-step button after a modal submission has been acknowledged."""
     step = await onboarding_step(pool, interaction.user.id)
     if step == 'complete':
         message += '\n\n🏁 **Onboarding complete!** Your adventure is underway. Any pending plan and milestone approvals are handled by the organizers.'
-        await interaction.followup.send(message, ephemeral=True)
+        sent = await interaction.followup.send(
+            message, ephemeral=True, wait=True
+        )
+        dismiss_onboarding_message(sent)
     else:
         label = {'name': 'challenger name', 'plan': 'weekly workout plan', 'milestones': 'three personal milestones'}[step]
         message += f'\n\n**Next:** Set your {label} using the button below.'
-        await interaction.followup.send(message, view=ContinueOnboarding(interaction.user.id, pool, bot), ephemeral=True)
+        sent = await interaction.followup.send(
+            message,
+            view=ContinueOnboarding(interaction.user.id, pool, bot),
+            ephemeral=True,
+            wait=True,
+        )
+        dismiss_onboarding_message(sent)
 
 
 async def start_onboarding(i, pool, bot):

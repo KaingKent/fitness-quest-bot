@@ -282,6 +282,7 @@ class HubView(discord.ui.View):
         else:
             content = 'No approved structured fitness goals yet. Use `/set_goal` to submit or update your goals.'
         await interaction.response.send_message(content, ephemeral=True)
+        dismiss_hub_message(await interaction.original_response())
 
     @discord.ui.button(label="Weekly Quests", style=discord.ButtonStyle.secondary, emoji="📜", custom_id="fitnessquest:quests", row=1)
     async def quests_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -297,6 +298,7 @@ class HubView(discord.ui.View):
             embed.description += '\nNo published quests yet.'
         view = quests.QuestSelectView(pool, rows) if rows else None
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        dismiss_hub_message(await interaction.original_response())
 
     @discord.ui.button(label="Weekly Reflection", style=discord.ButtonStyle.secondary, emoji="📖", custom_id="fitnessquest:reflection", row=1)
     async def reflection_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -309,12 +311,14 @@ class HubView(discord.ui.View):
                 FROM personal_milestones WHERE discord_user_id=$1 ORDER BY chapter""", interaction.user.id)
         if not rows:
             await interaction.response.send_message('No milestones yet. Use Begin Your Adventure to set them.', ephemeral=True)
+            dismiss_hub_message(await interaction.original_response())
             return
         embed = discord.Embed(title='🏁 Your Milestones', color=0x8876c9)
         for r in rows:
             embed.add_field(name=f'Chapter {r["chapter"]} · Week {r["chapter"]*4}',
                             value=f'{quest_reviews.escape(r["goal"])}\nGoal: {r["goal_status"]} · Completion: {r["completion_status"]} · 30 XP', inline=False)
         await interaction.response.send_message(embed=embed, view=MilestoneSubmitView(interaction.user.id), ephemeral=True)
+        dismiss_hub_message(await interaction.original_response())
 
     @discord.ui.button(label="Achievements", style=discord.ButtonStyle.secondary, emoji="🏆", custom_id="fitnessquest:achievements", row=1)
     async def achievements_button(self, interaction: discord.Interaction, button: discord.ui.Button):
