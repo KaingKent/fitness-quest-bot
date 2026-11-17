@@ -3,10 +3,10 @@ import datetime as dt
 import os
 import discord
 from discord import app_commands
-import workouts
-import quest_reviews
-import achievements
-import quest_scheduler
+from fitness_quest import workouts
+from fitness_quest import quest_reviews
+from fitness_quest import achievements
+from fitness_quest import quest_scheduler
 from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("America/New_York")

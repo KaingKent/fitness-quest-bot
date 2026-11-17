@@ -2,8 +2,8 @@
 """Phase 3C: resumable onboarding and button-based milestone approvals."""
 import os
 import discord
-import workouts
-import quests
+from fitness_quest import workouts
+from fitness_quest import quests
 
 APPROVAL_CHANNEL_ID=int(os.getenv('APPROVAL_CHANNEL_ID') or 0)
 ORGANIZER_ID=int(os.getenv('ORGANIZER_DISCORD_ID') or 0)
@@ -28,7 +28,7 @@ async def start_onboarding(i,pool,bot):
     if step=='plan':
         return await i.response.send_modal(workouts.PlanModal(pool,bot))
     if step=='milestones':
-        import quest_reviews
+        from fitness_quest import quest_reviews
         return await i.response.send_modal(quest_reviews.SetMilestones(pool))
     await i.response.send_message('✅ Your adventure is already underway! Use **My Progress** to view your character.',ephemeral=True)
 
@@ -87,7 +87,7 @@ class MilestoneReviewView(discord.ui.View):
         if not row:
             return await i.followup.send('Already reviewed or no longer pending.',ephemeral=True)
         if self.kind=='completion':
-            import achievements
+            from fitness_quest import achievements
             await achievements.refresh(i.client,self.pool,self.uid)
         await i.message.edit(embed=reviewed_embed(i.message.embeds[0],'Approved',i.user.display_name),view=None)
         await i.followup.send('Approved.',ephemeral=True)

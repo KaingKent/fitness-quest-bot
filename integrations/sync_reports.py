@@ -3,6 +3,12 @@
 
 Default is preview; --apply overwrites only A:D / A:E reporting data, not planner tabs.
 """
+
+# Load environment variables from the project root.
+from pathlib import Path as _EnvPath
+from dotenv import load_dotenv as _load_dotenv
+_load_dotenv(_EnvPath(__file__).resolve().parent.parent / ".env")
+
 import argparse
 import asyncio
 import datetime as dt

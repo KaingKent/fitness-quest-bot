@@ -4,7 +4,7 @@ import os
 import datetime as dt
 import discord
 from discord import app_commands
-import workouts
+from fitness_quest import workouts
 
 GUILD_ID = int(os.environ['DISCORD_GUILD_ID'])
 ORGANIZER_ID = int(os.getenv('ORGANIZER_DISCORD_ID') or '0')
@@ -44,7 +44,7 @@ class SetMilestones(discord.ui.Modal, title='Set Your 3 Milestones'):
                     return await i.followup.send('Milestones already exist. Ask an admin to adjust them.',ephemeral=True)
                 for chapter,goal in enumerate(goals,1):
                     await c.execute('INSERT INTO personal_milestones(discord_user_id,chapter,goal) VALUES($1,$2,$3)',i.user.id,chapter,goal)
-        import quest_progress
+        from fitness_quest import quest_progress
         for chapter in (1,2,3):
             try:
                 await quest_progress.post_milestone_review(i.client,self.pool,i.user.id,chapter,'goal')
@@ -91,7 +91,7 @@ class MilestoneProof(discord.ui.Modal):
                 RETURNING chapter""",i.user.id,self.row['chapter'],self.details.value.strip(),proof_url)
         if not updated:
             return await i.followup.send('This milestone is not approved, or its completion is already pending/approved.',ephemeral=True)
-        import quest_progress
+        from fitness_quest import quest_progress
         try:
             await quest_progress.post_milestone_review(i.client,self.pool,i.user.id,self.row['chapter'],'completion')
         except (discord.HTTPException,RuntimeError) as exc:
@@ -176,6 +176,6 @@ def register(bot,get_pool):
                 WHERE discord_user_id=$1 AND chapter=$2 AND goal_status='approved'
                 AND completion_status='pending' RETURNING chapter""",member.id,chapter,decision.value,i.user.id)
         if row and decision.value=='approved':
-            import achievements
+            from fitness_quest import achievements
             await achievements.refresh(i.client,get_pool(),member.id)
         await i.response.send_message(('Completion approved; +30 XP awarded.' if decision.value=='approved' else 'Completion rejected; challenger may resubmit.') if row else 'No pending completion found.',ephemeral=True)

@@ -83,7 +83,7 @@ def _profile_font(size, *, heavy=False, japanese=False):
     """Load real fonts on Ubuntu; fail clearly instead of silently drawing tiny text.
 
     Install with: sudo apt-get install fonts-dejavu-core fonts-noto-cjk
-    Place your own fortnite.otf alongside workouts.py for the Fortnite-style headings.
+    Place your own fortnite.otf inside the project's assets/ directory for the Fortnite-style headings.
     """
     from pathlib import Path
     import os
@@ -102,7 +102,7 @@ def _profile_font(size, *, heavy=False, japanese=False):
             ]
         elif heavy:
             paths += [
-                str(base / 'fortnite.otf'),
+                str(Path(__file__).resolve().parent.parent / 'assets' / 'fortnite.otf'),
                 str(base / 'profile_display.ttf'),
                 '/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf',
                 '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
@@ -265,7 +265,7 @@ def make_profile(name, xp, count, target, avatar_bytes=None, stats=None, goals=N
     _fitted(d, f'{weekly_earned} / 50', (290, 652, 180), 36)
 
     _fitted(d, 'sisyphus spotted', (108, 729, 355), 35)
-    meme = Path(__file__).with_name('sisyphus_spotted.png')
+    meme = Path(__file__).resolve().parent.parent / 'assets' / 'sisyphus_spotted.png'
     if meme.is_file():
         try:
             from PIL import ImageOps
@@ -484,7 +484,7 @@ class ReviewView(discord.ui.View):
         except discord.HTTPException:
             pass
         if status == 'approved':
-            import achievements
+            from fitness_quest import achievements
             await achievements.refresh(self.bot,self.pool,request['discord_user_id'])
         await interaction.followup.send(f'Plan {status}.' + journal_text, ephemeral=True)
 
@@ -621,7 +621,7 @@ def register(bot, get_pool):
         await interaction.response.defer()
         pool = get_pool()
         subject = member or interaction.user
-        import achievements
+        from fitness_quest import achievements
         if member is None: await achievements.refresh(bot,pool,subject.id)
         xp = await achievements.total_xp(pool, subject.id)
         stats = await achievements.profile_stats(pool, subject.id)

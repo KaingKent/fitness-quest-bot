@@ -14,12 +14,12 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
-import workouts
-import quests
-import quest_reviews
-import quest_progress
-import achievements
-import quest_scheduler
+from fitness_quest import workouts
+from fitness_quest import quests
+from fitness_quest import quest_reviews
+from fitness_quest import quest_progress
+from fitness_quest import achievements
+from fitness_quest import quest_scheduler
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("fitness-quest")
 TZ = ZoneInfo("America/New_York")

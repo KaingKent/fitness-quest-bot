@@ -1,6 +1,6 @@
 # Preseason quest test patch
 
-This patch changes only `phase3.py` and only when `FITNESS_QUEST_PRESEASON_TEST=true`. It permits an organizer to create and manually publish a test quest for Monday 2026-11-16. It does not change the November 30 season start or Weeks 1/2 scheduler. Preseason quests appear in `/quests` during November 16–22; submission and approval use the existing bot paths and may grant test XP. No automated reset is included.
+This patch changes only `fitness_quest/quests.py` and only when `FITNESS_QUEST_PRESEASON_TEST=true`. It permits an organizer to create and manually publish a test quest for Monday 2026-11-16. It does not change the November 30 season start or Weeks 1/2 scheduler. Preseason quests appear in `/quests` during November 16–22; submission and approval use the existing bot paths and may grant test XP. No automated reset is included.
 
 ## Windows PowerShell
 ```powershell
@@ -11,13 +11,13 @@ ssh -i "$env:USERPROFILE\Downloads\chungus.pem" ubuntu@13.218.241.58
 ## EC2 Ubuntu
 ```bash
 cd ~/fitness-quest-bot
-cp phase3.py "phase3.py.backup.$(date +%Y%m%d-%H%M%S)"
+cp fitness_quest/quests.py "fitness_quest/quests.py.backup.$(date +%Y%m%d-%H%M%S)"
 unzip -o ~/fitness-quest-preseason-test.zip -d ~/fitness-quest-bot
 nano .env
 ```
 Add `FITNESS_QUEST_PRESEASON_TEST=true`, then:
 ```bash
-./.venv/bin/python -m py_compile phase3.py
+./.venv/bin/python -m py_compile fitness_quest/quests.py
 sudo systemctl restart fitness-quest
 sudo journalctl -u fitness-quest -n 60 --no-pager
 ```

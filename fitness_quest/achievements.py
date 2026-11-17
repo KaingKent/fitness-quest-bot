@@ -3,7 +3,7 @@ import datetime as dt
 import logging
 import os
 import discord
-import workouts
+from fitness_quest import workouts
 
 log=logging.getLogger('fitness-quest.achievements')
 CHANNEL_ID=int(os.getenv('ACHIEVEMENTS_CHANNEL_ID') or 0)
