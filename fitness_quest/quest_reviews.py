@@ -27,9 +27,10 @@ class SetMilestones(discord.ui.Modal, title='Set Your 3 Milestones'):
     first=discord.ui.TextInput(label='Chapter I / Week 4',style=discord.TextStyle.paragraph,max_length=300)
     second=discord.ui.TextInput(label='Chapter II / Week 8',style=discord.TextStyle.paragraph,max_length=300)
     third=discord.ui.TextInput(label='Chapter III / Week 12',style=discord.TextStyle.paragraph,max_length=300)
-    def __init__(self,pool):
+    def __init__(self,pool,guided=False):
         super().__init__()
         self.pool=pool
+        self.guided=guided
     async def on_submit(self,i):
         await i.response.defer(ephemeral=True)
         if not await player_exists(self.pool,i.user.id):
@@ -51,7 +52,10 @@ class SetMilestones(discord.ui.Modal, title='Set Your 3 Milestones'):
             except (discord.HTTPException,RuntimeError) as exc:
                 await i.followup.send(f'Goals saved, but approval notification failed: {exc}',ephemeral=True)
                 return
-        await i.followup.send('All three goals sent to #plan-approvals. No XP yet.',ephemeral=True)
+        if self.guided:
+            await quest_progress.send_onboarding_progress(i, self.pool, i.client, 'All three goals sent to #plan-approvals. No XP yet.')
+        else:
+            await i.followup.send('All three goals sent to #plan-approvals. No XP yet.',ephemeral=True)
 
 class MilestoneProof(discord.ui.Modal):
     def __init__(self,pool,row):

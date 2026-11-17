@@ -21,16 +21,41 @@ async def onboarding_step(pool,uid):
         if milestones<3: return 'milestones'
     return 'complete'
 
-async def start_onboarding(i,pool,bot):
-    step=await onboarding_step(pool,i.user.id)
-    if step=='name':
-        return await i.response.send_modal(workouts.RegistrationModal(pool,bot))
-    if step=='plan':
-        return await i.response.send_modal(workouts.PlanModal(pool,bot))
-    if step=='milestones':
+class ContinueOnboarding(discord.ui.View):
+    """A user-specific continuation button; DB state determines the next step."""
+    def __init__(self, owner_id, pool, bot):
+        super().__init__(timeout=900)
+        self.owner_id, self.pool, self.bot = owner_id, pool, bot
+
+    @discord.ui.button(label='Continue Your Adventure', style=discord.ButtonStyle.primary, emoji='⚔️')
+    async def continue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.owner_id:
+            return await interaction.response.send_message('This onboarding button belongs to another challenger.', ephemeral=True)
+        await start_onboarding(interaction, self.pool, self.bot)
+
+
+async def send_onboarding_progress(interaction, pool, bot, message):
+    """Send a next-step button after a modal submission has been acknowledged."""
+    step = await onboarding_step(pool, interaction.user.id)
+    if step == 'complete':
+        message += '\n\n🏁 **Onboarding complete!** Your adventure is underway. Any pending plan and milestone approvals are handled by the organizers.'
+        await interaction.followup.send(message, ephemeral=True)
+    else:
+        label = {'name': 'challenger name', 'plan': 'weekly workout plan', 'milestones': 'three personal milestones'}[step]
+        message += f'\n\n**Next:** Set your {label} using the button below.'
+        await interaction.followup.send(message, view=ContinueOnboarding(interaction.user.id, pool, bot), ephemeral=True)
+
+
+async def start_onboarding(i, pool, bot):
+    step = await onboarding_step(pool, i.user.id)
+    if step == 'name':
+        return await i.response.send_modal(workouts.RegistrationModal(pool, bot, guided=True))
+    if step == 'plan':
+        return await i.response.send_modal(workouts.PlanModal(pool, bot, guided=True))
+    if step == 'milestones':
         from fitness_quest import quest_reviews
-        return await i.response.send_modal(quest_reviews.SetMilestones(pool))
-    await i.response.send_message('✅ Your adventure is already underway! Use **My Progress** to view your character.',ephemeral=True)
+        return await i.response.send_modal(quest_reviews.SetMilestones(pool, guided=True))
+    await i.response.send_message('✅ Your adventure is already underway! Use **My Progress** to view your character.', ephemeral=True)
 
 class RejectReason(discord.ui.Modal,title='Reject milestone'):
     reason=discord.ui.TextInput(label='Reason for rejection',style=discord.TextStyle.paragraph,max_length=400)

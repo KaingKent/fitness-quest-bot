@@ -492,9 +492,9 @@ class ReviewView(discord.ui.View):
 class RegistrationModal(discord.ui.Modal, title='Join Fitness Quest'):
     name = discord.ui.TextInput(label='Challenger name', placeholder='Name shown on profiles and journals', min_length=2, max_length=32)
 
-    def __init__(self, pool, bot):
+    def __init__(self, pool, bot, guided=False):
         super().__init__()
-        self.pool, self.bot = pool, bot
+        self.pool, self.bot, self.guided = pool, bot, guided
 
     async def on_submit(self, interaction):
         name = str(self.name).strip()
@@ -523,9 +523,14 @@ class RegistrationModal(discord.ui.Modal, title='Join Fitness Quest'):
                 msg += f' Your journal: {journal.mention}'
             except (RuntimeError, discord.Forbidden, discord.HTTPException) as exc:
                 log.warning('Could not update journal name: %s', exc)
-        else:
+        elif not self.guided:
             msg += ' Next, submit your workout plan using `/set_goal`.'
-        await interaction.response.send_message(msg, ephemeral=True)
+        if self.guided:
+            from fitness_quest import quest_progress
+            await interaction.response.defer(ephemeral=True)
+            await quest_progress.send_onboarding_progress(interaction, self.pool, self.bot, msg)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
 
 
 class PlanModal(discord.ui.Modal, title='Request weekly workout plan'):
@@ -536,9 +541,9 @@ class PlanModal(discord.ui.Modal, title='Request weekly workout plan'):
     goal2 = discord.ui.TextInput(label='Fitness goal 2 (optional)', placeholder='Increase bench press', required=False, max_length=200)
     goal3 = discord.ui.TextInput(label='Fitness goal 3 (optional)', placeholder='Improve flexibility', required=False, max_length=200)
 
-    def __init__(self, pool, bot):
+    def __init__(self, pool, bot, guided=False):
         super().__init__()
-        self.pool, self.bot = pool, bot
+        self.pool, self.bot, self.guided = pool, bot, guided
 
     async def on_submit(self, interaction):
         try:
@@ -577,7 +582,12 @@ class PlanModal(discord.ui.Modal, title='Request weekly workout plan'):
         msg = await channel.send(embed=embed, view=view, allowed_mentions=discord.AllowedMentions.none())
         async with self.pool.acquire() as con:
             await con.execute('UPDATE plan_requests SET admin_message_id=$1 WHERE id=$2', msg.id, req)
-        await interaction.response.send_message('Plan submitted for admin approval!', ephemeral=True)
+        if self.guided:
+            from fitness_quest import quest_progress
+            await interaction.response.defer(ephemeral=True)
+            await quest_progress.send_onboarding_progress(interaction, self.pool, self.bot, 'Plan submitted for admin approval!')
+        else:
+            await interaction.response.send_message('Plan submitted for admin approval!', ephemeral=True)
 
 
 def register(bot, get_pool):
