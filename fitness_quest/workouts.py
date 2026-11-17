@@ -346,9 +346,9 @@ async def ensure_journal(bot, pool, guild, user):
 
 
 
-async def announce_xp(bot, pool, user_id, amount, reason):
+async def announce_xp(bot, pool, user_id, amount, reason, unlocked=()):
     """Notify the player's existing journal; XP is awarded elsewhere."""
-    if amount <= 0:
+    if amount <= 0 and not unlocked:
         return False
     async with pool.acquire() as con:
         journal_id = await con.fetchval(
@@ -357,9 +357,13 @@ async def announce_xp(bot, pool, user_id, amount, reason):
     if not isinstance(channel, discord.TextChannel):
         return False
     try:
-        await channel.send(
-            f'✨ **+{amount} XP** — {discord.utils.escape_markdown(str(reason))}',
-            allowed_mentions=discord.AllowedMentions.none())
+        from fitness_quest.achievements import BY_KEY
+        bonus = len(unlocked) * 15
+        names = ', '.join(discord.utils.escape_markdown(BY_KEY[key][2]) for key in unlocked)
+        content = f'**{discord.utils.escape_markdown(str(reason))}** · **+{amount + bonus} XP**'
+        if unlocked:
+            content += f'\nAchievements unlocked: {names} (+{bonus} XP)'
+        await channel.send(content, allowed_mentions=discord.AllowedMentions.none())
         return True
     except (discord.Forbidden, discord.HTTPException):
         log.exception('Could not announce XP for %s', user_id)

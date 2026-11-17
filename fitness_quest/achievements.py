@@ -92,11 +92,7 @@ async def refresh(bot,pool,uid):
         if all(key in keys for key in BY_KEY if key!='chungus_completionist'):
             result=await c.execute('INSERT INTO achievement_unlocks(discord_user_id,achievement_key) VALUES($1,$2) ON CONFLICT DO NOTHING',uid,'chungus_completionist')
             if result=='INSERT 0 1': new.append('chungus_completionist')
-    if new and bot:
-        for key in new:
-            await workouts.announce_xp(bot, pool, uid, 15,
-                                       f'Achievement unlocked: {BY_KEY[key][2]}')
-    if new and CHANNEL_ID and bot:
+    if False and new and CHANNEL_ID and bot:
         channel=bot.get_channel(CHANNEL_ID)
         if channel is None:
             try: channel=await bot.fetch_channel(CHANNEL_ID)

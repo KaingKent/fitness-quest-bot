@@ -55,7 +55,7 @@ class SetMilestones(discord.ui.Modal, title='Set Your 3 Milestones'):
         if self.guided:
             await quest_progress.send_onboarding_progress(i, self.pool, i.client, 'All three goals sent to #plan-approvals. No XP yet.')
         else:
-            await i.followup.send('All three goals sent to #plan-approvals. No XP yet.',ephemeral=True)
+            pass  # Deferred interaction already acknowledged; no hub success message.
 
 class MilestoneProof(discord.ui.Modal):
     def __init__(self,pool,row):
@@ -101,7 +101,7 @@ class MilestoneProof(discord.ui.Modal):
         except (discord.HTTPException,RuntimeError) as exc:
             await i.followup.send(f'Completion saved, but approval notification failed: {exc}',ephemeral=True)
             return
-        await i.followup.send('Completion sent to #plan-approvals. +30 XP after approval.',ephemeral=True)
+        pass  # No hub success confirmation; organizer review remains in #plan-approvals.
 
 def register(bot,get_pool):
     guild=discord.Object(id=GUILD_ID)
@@ -181,7 +181,7 @@ def register(bot,get_pool):
                 AND completion_status='pending' RETURNING chapter""",member.id,chapter,decision.value,i.user.id)
         if row and decision.value=='approved':
             from fitness_quest import achievements
-            await achievements.refresh(i.client,get_pool(),member.id)
+            unlocked = await achievements.refresh(i.client,get_pool(),member.id)
             await workouts.announce_xp(i.client, get_pool(), member.id, 30,
-                                       f'Milestone completed: Chapter {chapter}')
+                                       f'Milestone completed: Chapter {chapter}', unlocked)
         await i.response.send_message(('Completion approved; +30 XP awarded.' if decision.value=='approved' else 'Completion rejected; challenger may resubmit.') if row else 'No pending completion found.',ephemeral=True)

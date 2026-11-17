@@ -158,22 +158,22 @@ class WorkoutModal(discord.ui.Modal, title="Log your workout"):
             except discord.HTTPException:
                 pass
             raise
-        await achievements.refresh(bot,pool,interaction.user.id)
+        unlocked = await achievements.refresh(bot,pool,interaction.user.id)
         count, target, xp = await weekly_progress(interaction.user.id, day)
         earned = max(0, xp - before_workout_xp)
-        if earned:
-            await workouts.announce_xp(bot, pool, interaction.user.id, earned, 'Workout progress')
+        bonus = len(unlocked) * 15
+        preview.add_field(name='XP Earned', value=f'+{earned + bonus} XP' + (f' ({earned} workout + {bonus} achievement)' if bonus else ''), inline=True)
+        if unlocked:
+            from fitness_quest.achievements import BY_KEY
+            preview.add_field(name='Achievements Unlocked', value=', '.join(BY_KEY[key][2] for key in unlocked), inline=False)
+        try:
+            await proof_message.edit(embed=preview)
+        except (discord.Forbidden, discord.HTTPException):
+            log.exception('Could not update workout card with XP for %s', workout_id)
         status = (f"{count}/{target} workouts · {xp}/50 workout XP" if target
                   else "Workout XP pending plan approval (use /register then /set_goal)")
         publish_status = "Posted to your journal."
-        confirmation = await interaction.followup.send(
-            f"✅ Workout saved! {publish_status}\nWeek of {week_bounds(day)[0]}: **{status}**.\n"
-            "Workout proof attached to your journal.", ephemeral=True, wait=True)
-        await asyncio.sleep(15)
-        try:
-            await confirmation.delete()
-        except (discord.NotFound, discord.HTTPException):
-            pass
+        pass  # Deferred interaction acknowledged; no hub success follow-up.
 
 
 class WorkoutTypeSelect(discord.ui.Select):
