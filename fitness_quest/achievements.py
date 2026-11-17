@@ -3,7 +3,7 @@ import datetime as dt
 import logging
 import os
 import discord
-from fitness_quest import workouts
+from fitness_quest import workouts as workout_module
 
 log=logging.getLogger('fitness-quest.achievements')
 CHANNEL_ID=int(os.getenv('ACHIEVEMENTS_CHANNEL_ID') or 0)
@@ -94,7 +94,7 @@ async def snapshot(pool,uid):
       'no_crumbs_left':perfect_chapter,
       'chungus_completionist':False
     }
-    week=workouts.monday(workouts.today())
+    week=workout_module.monday(workout_module.today())
     return dict(satisfied=satisfied,unlocked={r['achievement_key'] for r in unlocked},
                 mini_week=mini_weeks.get(week,0),main_week=sum(q['week_start']==week for q in mains),
                 milestones=int(milestones or 0),name=name)
@@ -169,7 +169,7 @@ def register(bot,get_pool):
         await i.followup.send(embed=e,ephemeral=True)
 
 async def total_xp(pool,uid):
-    workout=await workouts.workout_total(pool,uid)
+    workout=await workout_module.workout_total(pool,uid)
     async with pool.acquire() as c:
         extra=await c.fetchval('''SELECT COALESCE(SUM(xp),0)::int FROM (
             SELECT q.xp FROM quest_submissions s JOIN quests q ON q.id=s.quest_id
