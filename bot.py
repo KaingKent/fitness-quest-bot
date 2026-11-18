@@ -125,89 +125,94 @@ class WorkoutModal(discord.ui.Modal, title="Log your workout"):
         if proof_channel is None:
             await interaction.followup.send('Your personal journal is not ready. Ask an organizer to approve your plan before logging workouts.',ephemeral=True)
             return
-        # Calculate workout XP before saving, so journal notices report only new XP.
+        # Calculate the previous workout XP before inserting the new workout.
         _, _, before_workout_xp = await weekly_progress(interaction.user.id, day)
         try:
             proof_uploads = []
             for index, item in enumerate(proof_files, 1):
                 ext = item.filename.rsplit('.', 1)[-1].lower() if '.' in item.filename else 'png'
                 proof_uploads.append(await item.to_file(filename=f'workout-proof-{index}.{ext}'))
-            # Components V2: workout details, native-style gallery, then XP.
-            # Attachment references suppress separate attachment previews.
-            def make_workout_view(xp_text=None):
-                view = discord.ui.LayoutView(timeout=None)
-                safe_title = discord.utils.escape_markdown(str(self.workout_title).strip())
-                details = (f"## 💪 {safe_title}\n"
-                           f"**Activity:** {self.selected_workout_type}  ·  "
-                           f"**Duration:** {minutes} minutes  ·  **Date:** {day}")
-                if str(self.notes).strip():
-                    details += "\n**Notes:** " + discord.utils.escape_markdown(str(self.notes).strip())
-                view.add_item(discord.ui.TextDisplay(details))
-                view.add_item(discord.ui.MediaGallery(*[
-                    discord.MediaGalleryItem(media='attachment://' + item.filename)
-                    for item in proof_uploads
-                ]))
-                if xp_text:
-                    view.add_item(discord.ui.TextDisplay(xp_text))
-                return view
-
-            proof_message = await proof_channel.send(
-                view=make_workout_view(), files=proof_uploads,
-                allowed_mentions=discord.AllowedMentions.none())
-            # Discord may place an uploaded embed image in the embed rather than
-            # exposing it through Message.attachments. Never index an empty list.
-            proof_url = next((a.url for a in proof_message.attachments), None)
-            if not proof_url:
-                for sent_embed in proof_message.embeds:
-                    image_url = sent_embed.image.url if sent_embed.image else None
-                    if image_url and not image_url.startswith('attachment://'):
-                        proof_url = image_url
-                        break
-            if not proof_url:
-                # The original modal upload has a Discord-hosted URL too.
-                # Keep the journal card and complete the workout transaction.
-                proof_url = proof_files[0].url
-                log.warning('Workout journal message %s has no returned attachment; using original upload URL', proof_message.id)
-        except (discord.HTTPException,discord.Forbidden):
-            log.exception('Workout proof upload failed')
-            await interaction.followup.send('Could not upload proof to your journal. Workout not saved; try again.',ephemeral=True)
+        except (discord.HTTPException, discord.Forbidden):
+            log.exception('Could not download workout proof images')
+            await interaction.followup.send('Could not prepare your proof images. Workout not saved; try again.', ephemeral=True)
             return
+
         workout_id = uuid.uuid4()
         try:
             async with pool.acquire() as con:
                 async with con.transaction():
                     await con.execute("""insert into workouts(id,discord_user_id,workout_date,workout_type,duration_minutes,notes,visibility,title,image_discord_url,public_message_id)
-                        values($1,$2,$3,$4,$5,$6,'public',$7,$8,$9)""", workout_id, interaction.user.id,
-                        day, self.selected_workout_type, minutes, str(self.notes).strip(), str(self.workout_title).strip(),proof_url,proof_message.id)
+                        values($1,$2,$3,$4,$5,$6,'public',$7,$8,NULL)""", workout_id, interaction.user.id,
+                        day, self.selected_workout_type, minutes, str(self.notes).strip(),
+                        str(self.workout_title).strip(), proof_files[0].url)
                     await con.execute("insert into sync_outbox(workout_id,event_type) values($1,'upsert') on conflict do nothing", workout_id)
         except Exception:
-            try:
-                await proof_message.delete()
-            except discord.HTTPException:
-                pass
-            raise
-        unlocked = await achievements.refresh(bot,pool,interaction.user.id)
-        count, target, xp = await weekly_progress(interaction.user.id, day)
-        earned = max(0, xp - before_workout_xp)
-        # Update the SAME message, placing XP after the photo gallery.
+            log.exception('Could not save workout %s', workout_id)
+            await interaction.followup.send('Could not save your workout. Please try again.', ephemeral=True)
+            return
+
+        # Achievement refresh must follow the database insert. Assemble the final
+        # layout before sending, so the journal message is never edited for XP.
+        try:
+            unlocked = await achievements.refresh(bot, pool, interaction.user.id)
+            _, _, after_workout_xp = await weekly_progress(interaction.user.id, day)
+            earned = max(0, after_workout_xp - before_workout_xp)
+        except Exception:
+            log.exception('Could not calculate XP for saved workout %s', workout_id)
+            await interaction.followup.send('Workout saved, but XP could not be calculated. Ask an organizer to check your log.', ephemeral=True)
+            return
+
+        safe_title = discord.utils.escape_markdown(str(self.workout_title).strip())
+        details = (f"## 💪 {safe_title}\n"
+                   f"**Activity:** {self.selected_workout_type}  ·  "
+                   f"**Duration:** {minutes} minutes  ·  **Date:** {day}")
+        if str(self.notes).strip():
+            details += "\n**Notes:** " + discord.utils.escape_markdown(str(self.notes).strip())
+
         xp_lines = []
         if earned:
-            title = discord.utils.escape_markdown(str(self.workout_title).strip())
-            xp_lines.append(f"✨ **+{earned} XP** — Workout completed: {title}")
+            xp_lines.append(f"✨ **+{earned} XP** — Workout completed: {safe_title}")
         if unlocked:
             from fitness_quest.achievements import BY_KEY
             for key in unlocked:
                 name = discord.utils.escape_markdown(BY_KEY[key][2])
                 xp_lines.append(f"✨ **+15 XP** — Achievement unlocked: {name}")
-        if xp_lines:
-            try:
-                await proof_message.edit(view=make_workout_view("\n".join(xp_lines)))
-            except (discord.Forbidden, discord.HTTPException):
-                log.exception('Could not update workout message with XP for %s', workout_id)
-        status = (f"{count}/{target} workouts · {xp}/50 workout XP" if target
-                  else "Workout XP pending plan approval (use /register then /set_goal)")
-        publish_status = "Posted to your journal."
-        pass  # Deferred interaction acknowledged; no hub success follow-up.
+
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(discord.ui.TextDisplay(details))
+        view.add_item(discord.ui.MediaGallery(*[
+            discord.MediaGalleryItem(media='attachment://' + item.filename)
+            for item in proof_uploads
+        ]))
+        if not xp_lines:
+            # Always show the XP result, including when the weekly workout XP
+            # cap has been reached. Do not claim XP was awarded when it wasn't.
+            xp_lines.append("✨ **+0 XP** — Workout logged (no additional XP awarded; weekly cap may have been reached).")
+        xp_card = discord.ui.Container(accent_colour=discord.Colour.gold())
+        xp_card.add_item(discord.ui.TextDisplay("\n".join(xp_lines)))
+        view.add_item(xp_card)
+
+        try:
+            proof_message = await proof_channel.send(
+                view=view, files=proof_uploads,
+                allowed_mentions=discord.AllowedMentions.none())
+        except (discord.HTTPException, discord.Forbidden):
+            log.exception('Workout %s saved but journal upload failed', workout_id)
+            await interaction.followup.send('Workout saved, but its journal post failed. Ask an organizer to check it before submitting again.', ephemeral=True)
+            return
+
+        # Store the journal message ID for future lookups. Do not edit the message.
+        proof_url = next((a.url for a in proof_message.attachments), None)
+        if not proof_url:
+            proof_url = proof_files[0].url
+        try:
+            async with pool.acquire() as con:
+                await con.execute("""update workouts
+                    set public_message_id=$1, image_discord_url=$2
+                    where id=$3""", proof_message.id, proof_url, workout_id)
+        except Exception:
+            log.exception('Journal message %s sent, but workout metadata update failed', proof_message.id)
+        # Deferred interaction acknowledged silently; no hub success follow-up.
 
 
 class WorkoutTypeSelect(discord.ui.Select):
