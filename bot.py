@@ -82,7 +82,7 @@ class WorkoutModal(discord.ui.Modal, title="Log your workout"):
         self.workout_title.placeholder = title_example
         self.notes.placeholder = notes_example
         self.workout_date.default = dt.datetime.now(TZ).date().isoformat()
-        self.proof = discord.ui.FileUpload(required=True,min_values=1,max_values=1)
+        self.proof = discord.ui.FileUpload(required=True,min_values=1,max_values=5)
         self.add_item(discord.ui.Label(text='Workout proof (image)',component=self.proof))
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -105,9 +105,10 @@ class WorkoutModal(discord.ui.Modal, title="Log your workout"):
         proof_files=self.proof.values or []
         if not proof_files:
             return await interaction.response.send_message('Workout proof is required.',ephemeral=True)
-        proof=proof_files[0]
-        if not (proof.content_type or '').startswith('image/') or proof.size>8*1024*1024:
-            return await interaction.response.send_message('Upload an image smaller than 8 MB as workout proof.',ephemeral=True)
+        if any(not (item.content_type or '').startswith('image/') or item.size > 8*1024*1024 for item in proof_files):
+            return await interaction.response.send_message('Each proof must be an image smaller than 8 MB.', ephemeral=True)
+        if sum(item.size for item in proof_files) > 25*1024*1024:
+            return await interaction.response.send_message('Combined proof images must be under 25 MB.', ephemeral=True)
         await interaction.response.defer(ephemeral=True)
         if self.picker_interaction:
             try:
@@ -127,19 +128,46 @@ class WorkoutModal(discord.ui.Modal, title="Log your workout"):
         # Calculate workout XP before saving, so journal notices report only new XP.
         _, _, before_workout_xp = await weekly_progress(interaction.user.id, day)
         try:
-            proof_file=await proof.to_file(filename='workout-proof.'+(proof.filename.rsplit('.',1)[-1].lower() if '.' in proof.filename else 'png'))
-            preview = workouts.workout_embed({
-                'title': str(self.workout_title).strip(),
-                'workout_type': self.selected_workout_type,
-                'duration_minutes': minutes,
-                'workout_date': day,
-                'notes': str(self.notes).strip(),
-                'image_discord_url': 'attachment://' + proof_file.filename,
-            })
-            proof_message=await proof_channel.send(
-                embed=preview, file=proof_file,
+            proof_uploads = []
+            for index, item in enumerate(proof_files, 1):
+                ext = item.filename.rsplit('.', 1)[-1].lower() if '.' in item.filename else 'png'
+                proof_uploads.append(await item.to_file(filename=f'workout-proof-{index}.{ext}'))
+            # Components V2: workout details, native-style gallery, then XP.
+            # Attachment references suppress separate attachment previews.
+            def make_workout_view(xp_text=None):
+                view = discord.ui.LayoutView(timeout=None)
+                safe_title = discord.utils.escape_markdown(str(self.workout_title).strip())
+                details = (f"## 💪 {safe_title}\n"
+                           f"**Activity:** {self.selected_workout_type}  ·  "
+                           f"**Duration:** {minutes} minutes  ·  **Date:** {day}")
+                if str(self.notes).strip():
+                    details += "\n**Notes:** " + discord.utils.escape_markdown(str(self.notes).strip())
+                view.add_item(discord.ui.TextDisplay(details))
+                view.add_item(discord.ui.MediaGallery(*[
+                    discord.MediaGalleryItem(media='attachment://' + item.filename)
+                    for item in proof_uploads
+                ]))
+                if xp_text:
+                    view.add_item(discord.ui.TextDisplay(xp_text))
+                return view
+
+            proof_message = await proof_channel.send(
+                view=make_workout_view(), files=proof_uploads,
                 allowed_mentions=discord.AllowedMentions.none())
-            proof_url=proof_message.attachments[0].url
+            # Discord may place an uploaded embed image in the embed rather than
+            # exposing it through Message.attachments. Never index an empty list.
+            proof_url = next((a.url for a in proof_message.attachments), None)
+            if not proof_url:
+                for sent_embed in proof_message.embeds:
+                    image_url = sent_embed.image.url if sent_embed.image else None
+                    if image_url and not image_url.startswith('attachment://'):
+                        proof_url = image_url
+                        break
+            if not proof_url:
+                # The original modal upload has a Discord-hosted URL too.
+                # Keep the journal card and complete the workout transaction.
+                proof_url = proof_files[0].url
+                log.warning('Workout journal message %s has no returned attachment; using original upload URL', proof_message.id)
         except (discord.HTTPException,discord.Forbidden):
             log.exception('Workout proof upload failed')
             await interaction.followup.send('Could not upload proof to your journal. Workout not saved; try again.',ephemeral=True)
@@ -161,15 +189,21 @@ class WorkoutModal(discord.ui.Modal, title="Log your workout"):
         unlocked = await achievements.refresh(bot,pool,interaction.user.id)
         count, target, xp = await weekly_progress(interaction.user.id, day)
         earned = max(0, xp - before_workout_xp)
-        bonus = len(unlocked) * 15
-        preview.add_field(name='XP Earned', value=f'+{earned + bonus} XP' + (f' ({earned} workout + {bonus} achievement)' if bonus else ''), inline=True)
+        # Update the SAME message, placing XP after the photo gallery.
+        xp_lines = []
+        if earned:
+            title = discord.utils.escape_markdown(str(self.workout_title).strip())
+            xp_lines.append(f"✨ **+{earned} XP** — Workout completed: {title}")
         if unlocked:
             from fitness_quest.achievements import BY_KEY
-            preview.add_field(name='Achievements Unlocked', value=', '.join(BY_KEY[key][2] for key in unlocked), inline=False)
-        try:
-            await proof_message.edit(embed=preview)
-        except (discord.Forbidden, discord.HTTPException):
-            log.exception('Could not update workout card with XP for %s', workout_id)
+            for key in unlocked:
+                name = discord.utils.escape_markdown(BY_KEY[key][2])
+                xp_lines.append(f"✨ **+15 XP** — Achievement unlocked: {name}")
+        if xp_lines:
+            try:
+                await proof_message.edit(view=make_workout_view("\n".join(xp_lines)))
+            except (discord.Forbidden, discord.HTTPException):
+                log.exception('Could not update workout message with XP for %s', workout_id)
         status = (f"{count}/{target} workouts · {xp}/50 workout XP" if target
                   else "Workout XP pending plan approval (use /register then /set_goal)")
         publish_status = "Posted to your journal."
