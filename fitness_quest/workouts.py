@@ -27,10 +27,9 @@ def monday(day):
 
 
 def level_and_title(xp):
-    level = min(15, 1 + xp // 100)
-    titles = [(15, 'Mythic'), (13, 'Legend'), (11, 'Champion'), (9, 'Elite'),
-              (7, 'Warrior'), (5, 'Challenger'), (3, 'Adventurer'), (1, 'Rookie')]
-    return level, next(title for threshold, title in titles if level >= threshold)
+    from fitness_quest.level_roles import title_for_level
+    level = min(15, 1 + max(0, int(xp)) // 100)
+    return level, title_for_level(level)
 
 
 def weekly_xp(count, target):
@@ -541,6 +540,12 @@ class RegistrationModal(discord.ui.Modal, title='Join Fitness Quest'):
                 display_name=excluded.display_name,challenger_name=excluded.challenger_name""",
                 interaction.user.id, interaction.user.display_name, name)
             approved = await con.fetchval('SELECT 1 FROM plan_history WHERE discord_user_id=$1 LIMIT 1', interaction.user.id)
+        # Grant the starting Chud role immediately after registration.
+        from fitness_quest import level_roles
+        try:
+            await level_roles.sync_player(self.bot, self.pool, interaction.user.id)
+        except Exception:
+            log.exception('Could not sync title role during registration')
         msg = f'⚔️ Registered as **{discord.utils.escape_markdown(name)}**!'
         if approved and interaction.guild:
             try:

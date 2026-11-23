@@ -19,7 +19,9 @@ from fitness_quest import quests
 from fitness_quest import quest_reviews
 from fitness_quest import quest_progress
 from fitness_quest import achievements
+from fitness_quest import level_roles
 from fitness_quest import quest_scheduler
+from fitness_quest import season_gate
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("fitness-quest")
 TZ = ZoneInfo("America/New_York")
@@ -86,6 +88,8 @@ class WorkoutModal(discord.ui.Modal, title="Log your workout"):
         self.add_item(discord.ui.Label(text='Workout proof (image)',component=self.proof))
 
     async def on_submit(self, interaction: discord.Interaction):
+        if not await season_gate.require_open(interaction):
+            return
         try:
             minutes = int(str(self.duration))
             day = dt.date.fromisoformat(str(self.workout_date))
@@ -574,6 +578,11 @@ async def before_sync():
 @bot.event
 async def on_ready():
     log.info("Connected as %s", bot.user)
+    # Startup is silent: restore missing collectible roles without replaying old announcements.
+    try:
+        await level_roles.reconcile(bot, pool)
+    except Exception:
+        log.exception('Level-role startup reconciliation failed')
 
 
 async def main():
@@ -581,6 +590,7 @@ async def main():
     log.info("Connecting to Supabase...")
     pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5, ssl="require")
     log.info("Supabase connection pool initialized")
+    await level_roles.initialize(pool)
     try:
         async with bot:
             bot.add_view(HubView())

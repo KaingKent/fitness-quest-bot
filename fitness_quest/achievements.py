@@ -105,6 +105,14 @@ async def refresh(bot,pool,uid):
                                 color=discord.Color.gold())
                 try: await channel.send(embed=e,allowed_mentions=discord.AllowedMentions.none())
                 except discord.HTTPException: log.exception('Achievement announcement failed: %s/%s',uid,key)
+    if bot is not None:
+        # This runs after each XP-bearing database change, including workout,
+        # quest, reflection, milestone and achievement awards.
+        from fitness_quest import level_roles
+        try:
+            await level_roles.sync_player(bot, pool, uid)
+        except Exception:
+            log.exception('Could not synchronize collectible title roles for %s', uid)
     return new
 
 async def xp(pool,uid):

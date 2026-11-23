@@ -7,6 +7,7 @@ from fitness_quest import workouts
 from fitness_quest import quest_reviews
 from fitness_quest import achievements
 from fitness_quest import quest_scheduler
+from fitness_quest import season_gate
 from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("America/New_York")
@@ -150,6 +151,8 @@ class ReflectionModal(discord.ui.Modal,title='Weekly Reflection'):
         super().__init__(); self.pool=pool
 
     async def on_submit(self,interaction:discord.Interaction):
+        if not await season_gate.require_open(interaction):
+            return
         week=workouts.monday(workouts.today())
         async with self.pool.acquire() as con:
             exists=await con.fetchval('SELECT 1 FROM players WHERE discord_user_id=$1',interaction.user.id)
@@ -188,6 +191,8 @@ class QuestModal(discord.ui.Modal):
             self.add_item(discord.ui.Label(text='Screenshot proof', component=self.upload))
 
     async def on_submit(self, interaction):
+        if not await season_gate.require_open(interaction):
+            return
         q = self.quest
         response = self.answer.value.strip()
         files = (self.upload.values or []) if self.upload else []
@@ -291,8 +296,7 @@ class QuestSelectView(discord.ui.View):
 
 def preseason_test_week(day):
     """Explicit one-week test allowance; never changes the 12-week season."""
-    return (os.getenv('FITNESS_QUEST_PRESEASON_TEST', '').lower() == 'true'
-            and day == dt.date(2026, 11, 16))
+    return False  # Preseason test publishing is permanently disabled.
 
 
 def register(bot,get_pool):
@@ -385,6 +389,8 @@ def register(bot,get_pool):
 
     @bot.tree.command(name='quest_submit',description='Open quest submission form',guild=guild)
     async def quest_submit(interaction:discord.Interaction,quest_id:int):
+        if not await season_gate.require_open(interaction):
+            return
         week=workouts.monday(workouts.today())
         async with get_pool().acquire() as con:
             q=await con.fetchrow('''SELECT q.id,q.title,q.xp,q.proof_type FROM quests q
@@ -409,6 +415,8 @@ def register(bot,get_pool):
 
     @bot.tree.command(name='reflect',description='Submit a private weekly reflection for 10 XP',guild=guild)
     async def reflect(interaction:discord.Interaction):
+        if not await season_gate.require_open(interaction):
+            return
         await interaction.response.send_modal(ReflectionModal(get_pool()))
 
     @bot.tree.command(name='reflections',description='Organizer: privately review reflections by week',guild=guild)

@@ -5,6 +5,7 @@ import datetime as dt
 import discord
 from discord import app_commands
 from fitness_quest import workouts
+from fitness_quest import season_gate
 
 GUILD_ID = int(os.environ['DISCORD_GUILD_ID'])
 ORGANIZER_ID = int(os.getenv('ORGANIZER_DISCORD_ID') or '0')
@@ -67,6 +68,8 @@ class MilestoneProof(discord.ui.Modal):
         self.add_item(discord.ui.Label(text='Completion details',component=self.details))
         self.add_item(discord.ui.Label(text='Optional screenshot',component=self.upload))
     async def on_submit(self,i):
+        if not await season_gate.require_open(i):
+            return
         uploads=self.upload.values or []
         attachment=uploads[0] if uploads else None
         if attachment and (not (attachment.content_type or '').startswith('image/') or attachment.size>8*1024*1024):
@@ -132,6 +135,8 @@ def register(bot,get_pool):
     @bot.tree.command(name='milestone_submit',description='Submit proof for an approved milestone',guild=guild)
     @app_commands.describe(chapter='1, 2 or 3; early completion is allowed')
     async def milestone_submit(i:discord.Interaction,chapter:app_commands.Range[int,1,3]):
+        if not await season_gate.require_open(i):
+            return
         async with get_pool().acquire() as c:
             row=await c.fetchrow('SELECT chapter,goal_status,completion_status FROM personal_milestones WHERE discord_user_id=$1 AND chapter=$2',i.user.id,chapter)
         if not row or row['goal_status']!='approved' or row['completion_status'] not in ('not_submitted','rejected'):
