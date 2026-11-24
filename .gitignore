@@ -41,3 +41,15 @@ backups/
 *.orig
 *.save
 *.phase*-backup
+
+# Private instance configurations
+instances/
+
+# Multi-instance deployment
+instances/
+logs/
+*.log
+*.backup
+*.before-*
+*.setup-tmp
+__pycache__/

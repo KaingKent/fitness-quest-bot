@@ -457,7 +457,7 @@ class ReviewView(discord.ui.View):
                     await interaction.followup.send('This request was already reviewed.', ephemeral=True)
                     return
                 old = await con.fetchval('SELECT 1 FROM plan_history WHERE discord_user_id=$1 LIMIT 1', request['discord_user_id'])
-                effective = monday(day) + dt.timedelta(days=7) if old else monday(day)
+                effective = max(monday(day) + dt.timedelta(days=7) if old else monday(day), dt.date(2026, 11, 30))
                 if status == 'approved':
                     while await con.fetchval('''SELECT 1 FROM plan_history WHERE discord_user_id=$1 AND effective_date=$2''',
                                              request['discord_user_id'], effective):
@@ -561,6 +561,11 @@ class RegistrationModal(discord.ui.Modal, title='Join Fitness Quest'):
             await quest_progress.send_onboarding_progress(interaction, self.pool, self.bot, msg)
         else:
             await interaction.response.send_message(msg, ephemeral=True)
+            await asyncio.sleep(5)
+            try:
+                await interaction.delete_original_response()
+            except (discord.NotFound, discord.HTTPException):
+                pass
 
 
 class PlanModal(discord.ui.Modal, title='Request weekly workout plan'):

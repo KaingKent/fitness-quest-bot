@@ -11,12 +11,12 @@ import os
 from pathlib import Path
 
 import asyncpg
-from dotenv import load_dotenv
+import instance_config
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
 
-load_dotenv(Path(__file__).resolve().parent / '.env')
-load_dotenv(Path(__file__).resolve().parent.parent / '.env')
+
+
 SHEET_ID = os.getenv('QUEST_SHEET_ID', '1fqjWGo2LOoK8j_YPPSRmB6F96anw-ouS43i3whIvmpc')
 SCOPE = ['https://www.googleapis.com/auth/spreadsheets']
 

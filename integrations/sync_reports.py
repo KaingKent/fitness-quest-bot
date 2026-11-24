@@ -6,8 +6,8 @@ Default is preview; --apply overwrites only A:D / A:E reporting data, not planne
 
 # Load environment variables from the project root.
 from pathlib import Path as _EnvPath
-from dotenv import load_dotenv as _load_dotenv
-_load_dotenv(_EnvPath(__file__).resolve().parent.parent / ".env")
+import instance_config
+
 
 import argparse
 import asyncio
@@ -16,11 +16,11 @@ import os
 from pathlib import Path
 
 import asyncpg
-from dotenv import load_dotenv
+
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
 
-load_dotenv(Path(__file__).resolve().parent / '.env')
+
 SHEET_ID=os.getenv('QUEST_SHEET_ID')
 SCOPE=['https://www.googleapis.com/auth/spreadsheets']
 TABS={

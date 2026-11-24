@@ -11,9 +11,9 @@ import asyncpg
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from dotenv import load_dotenv
+from instance_config import ENV_PATH
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+
 from fitness_quest import workouts
 from fitness_quest import quests
 from fitness_quest import quest_reviews
@@ -22,6 +22,7 @@ from fitness_quest import achievements
 from fitness_quest import level_roles
 from fitness_quest import quest_scheduler
 from fitness_quest import season_gate
+from fitness_quest import server_setup
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("fitness-quest")
 TZ = ZoneInfo("America/New_York")
@@ -89,7 +90,12 @@ class WorkoutModal(discord.ui.Modal, title="Log your workout"):
 
     async def on_submit(self, interaction: discord.Interaction):
         if not await season_gate.require_open(interaction):
-            return
+                if self.picker_interaction:
+                        try:
+                                await self.picker_interaction.delete_original_response()
+                        except (discord.NotFound, discord.HTTPException):
+                                pass
+                return
         try:
             minutes = int(str(self.duration))
             day = dt.date.fromisoformat(str(self.workout_date))
@@ -416,13 +422,21 @@ class HubView(discord.ui.View):
         dismiss_hub_message(message)
 
 
-HUB_TEXT = "# ⚔️ Fitness Quest\nBegin your adventure, log workouts, view your progress, or check the leaderboard!"
+HUB_TEXT = "# ⚔️ The Chungus Quest\nBegin your adventure, log workouts, view your progress, or check the leaderboard!"
 
 @bot.tree.command(name="log_workout", description="Log a workout without finding the hub button", guild=discord.Object(id=GUILD_ID))
 async def log_workout_command(interaction: discord.Interaction):
     await interaction.response.send_message(
         "**Choose your workout type:**",
         view=WorkoutTypeView(interaction.user.id, interaction), ephemeral=True)
+
+@bot.tree.command(name="setup_server", description="Admin: create Chungus Quest channels, roles, and dashboard", guild=discord.Object(id=GUILD_ID))
+@app_commands.describe(start_date="Season start Monday, YYYY-MM-DD (Eastern)")
+@app_commands.default_permissions(administrator=True)
+async def setup_server(interaction: discord.Interaction, start_date: str):
+    await server_setup.setup(interaction, bot, pool, HubView, HUB_TEXT,
+                             ENV_PATH, start_date)
+
 
 @bot.tree.command(name="setup_hub", description="Create or refresh the permanent workout dashboard", guild=discord.Object(id=GUILD_ID))
 @app_commands.default_permissions(manage_guild=True)
