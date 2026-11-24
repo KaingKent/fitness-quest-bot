@@ -4,9 +4,19 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent
 
-ENV_PATH = Path(
-    os.environ.get("CHUNGUS_ENV_FILE", str(BASE_DIR / ".env"))
-).expanduser().resolve()
+selected = os.environ.get("CHUNGUS_ENV_FILE")
+
+if not selected:
+    raise RuntimeError(
+        "CHUNGUS_ENV_FILE must specify an instance configuration."
+    )
+
+ENV_PATH = Path(selected).expanduser()
+
+if not ENV_PATH.is_absolute():
+    ENV_PATH = BASE_DIR / ENV_PATH
+
+ENV_PATH = ENV_PATH.resolve()
 
 if not ENV_PATH.is_file():
     raise RuntimeError(f"Configuration file not found: {ENV_PATH}")

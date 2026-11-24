@@ -1,19 +1,10 @@
-"""Read-only audit: python quest_calendar_audit.py (requires existing .env)."""
+"""Read-only, instance-specific quest calendar audit."""
 
-# Load environment variables from the project root.
-from pathlib import Path as _EnvPath
-from dotenv import load_dotenv as _load_dotenv
-_load_dotenv(_EnvPath(__file__).resolve().parent.parent / ".env")
-
+import instance_config
 import asyncio
 import datetime as dt
 import os
-from pathlib import Path
-
 import asyncpg
-from dotenv import load_dotenv
-
-load_dotenv(Path(__file__).resolve().parent / '.env')
 
 
 async def main():
